@@ -1,15 +1,17 @@
-@echo on
+@echo off
 setlocal EnableDelayedExpansion
 
 echo ==========================
 echo File Split / Merge Tool (高速版)
 echo 拖放文件即可分割或合并
+echo 注意: 路径中不能有 "^!" "^`" "^'" "^"" 等符号...
 echo ==========================
 echo.
 
 :: ================= 用户设置 =================
-set "CHUNK_MB=10"        :: 每块大小（单位MB）
-set "PART_PAD=3"         :: 分块编号位数（如 3 表示 part001）
+set "CHUNK_MB=100"        :: 每块大小（单位MB，单个 .part 文件的目标大小）
+set "BUF_MB=100"            :: 缓冲区大小（单位MB，分割和合并统一使用）
+set "PART_PAD=3"          :: 分块编号位数（如 3 表示 part001）
 :: =============================================
 
 if "%~1"=="" (
@@ -19,6 +21,7 @@ if "%~1"=="" (
 )
 
 set /a CHUNK_SIZE=%CHUNK_MB%*1024*1024
+set /a BUF_SIZE=%BUF_MB%*1024*1024
 
 for /F %%T in ('powershell -NoProfile -Command "[int](Get-Date -UFormat %%s)"') do set startTime=%%T
 
@@ -56,7 +59,7 @@ exit /b
 
 
 :: ==============================
-:: 子程序：文件分割 (高速版)
+:: 子程序：文件分割 (高速版，按 CHUNK_MB 固定每块大小)
 :: ==============================
 :split_file
 setlocal
@@ -65,26 +68,36 @@ set "DIR=%~dp1"
 set "BASE=%~nx1"
 
 echo 分割大小: %CHUNK_MB% MB
+echo 缓冲区大小: %BUF_MB% MB
 echo 正在高速分割中，请稍候...
 
 powershell -NoProfile -Command ^
   "$path=[IO.Path]::GetFullPath('%SRC%');" ^
   "$outDir=[IO.Path]::GetDirectoryName($path);" ^
   "$chunk=[long]%CHUNK_SIZE%;" ^
-  "$buf=New-Object byte[] $chunk;" ^
-  "$idx=0;" ^
+  "$buf=New-Object byte[] %BUF_SIZE%;" ^
   "$pad=%PART_PAD%;" ^
   "$fs=[IO.File]::OpenRead($path);" ^
-  "while(($read=$fs.Read($buf,0,$buf.Length)) -gt 0){" ^
+  "$total=[math]::Ceiling($fs.Length / $chunk);" ^
+  "$idx=1;" ^
+  "while($fs.Position -lt $fs.Length){" ^
   "  $suffix=$idx.ToString('D'+$pad);" ^
   "  $part=[IO.Path]::Combine($outDir,('{0}.part{1}' -f [IO.Path]::GetFileName($path),$suffix));" ^
   "  $out=[IO.File]::Open($part,[IO.FileMode]::Create,[IO.FileAccess]::Write);" ^
-  "  $out.Write($buf,0,$read);" ^
+  "  $remaining=[long][math]::Min($chunk, $fs.Length - $fs.Position);" ^
+  "  while($remaining -gt 0){" ^
+  "    $toRead=[int][math]::Min($buf.Length, $remaining);" ^
+  "    $read=$fs.Read($buf,0,$toRead);" ^
+  "    if($read -le 0){break}" ^
+  "    $out.Write($buf,0,$read);" ^
+  "    $remaining-=$read" ^
+  "  }" ^
   "  $out.Close();" ^
+  "  Write-Host ('正在写入分块 {0}/{1} -> {2}' -f $idx,$total,$part);" ^
   "  $idx++" ^
   "}" ^
   "$fs.Close();" ^
-  "Write-Host ('完成，共生成 {0} 个分块。' -f $idx)"
+  "Write-Host ('完成，共生成 {0} 个分块。' -f ($idx-1))"
 
 echo 分割完成。
 endlocal
@@ -92,54 +105,42 @@ goto :eof
 
 
 :: ==============================
-:: 子程序：文件合并
+:: 子程序：文件合并 (高速版，统一 BUF_MB)
 :: ==============================
 :merge_parts
 setlocal EnableDelayedExpansion
 set "FIRST=%~1"
 set "DIR=%~dp1"
-set "BASENAME=%~n1"
+set "BASENAME=%~nx1"
 
-:: 去掉 .part### 后缀
-for /f "tokens=1 delims=." %%a in ("%BASENAME%") do set "OUTNAME=%%a"
+:: 去掉 .part### 后缀，保留扩展名
+for /f "delims=" %%a in ("%BASENAME%") do set "OUTNAME=%%~na"
 set "OUTFILE=%DIR%%OUTNAME%"
+
 echo.
-echo 合并目标: %OUTFILE%
+echo 合并目标: "%OUTFILE%"
+echo 缓冲区大小: %BUF_MB% MB
 echo.
 
-set "LIST="
+:: 如果目标文件已存在，先删除
+if exist "%OUTFILE%" del "%OUTFILE%"
 
-:: 直接枚举所有分块文件，按名称顺序
-for %%f in ("%DIR%%OUTNAME%.part*") do (
-    if defined LIST (
-        set "LIST=!LIST!+%%f"
-    ) else (
-        set "LIST=%%f"
-    )
-)
-
-if not defined LIST (
-    echo 未找到任何分块文件。
-    endlocal
-    goto :eof
-)
-
-echo 正在合并中...
-copy /b !LIST! "%OUTFILE%" >nul
-echo 合并完成: "%OUTFILE%"
+powershell -NoProfile -Command ^
+  "$outFile=[IO.Path]::GetFullPath('%OUTFILE%');" ^
+  "$buf=New-Object byte[] %BUF_SIZE%;" ^
+  "$parts=Get-ChildItem -LiteralPath '%DIR%' -Filter '%OUTNAME%.part*' | Sort-Object Name;" ^
+  "$out=[IO.File]::Open($outFile,[IO.FileMode]::Create,[IO.FileAccess]::Write);" ^
+  "$idx=0;" ^
+  "foreach($p in $parts){" ^
+  "  $fs=[IO.File]::OpenRead($p.FullName);" ^
+  "  while(($read=$fs.Read($buf,0,$buf.Length)) -gt 0){" ^
+  "    $out.Write($buf,0,$read)" ^
+  "  }" ^
+  "  $fs.Close();" ^
+  "  $idx++;" ^
+  "  Write-Host ('正在合并第 {0} 块: {1}' -f $idx,$p.FullName);" ^
+  "}" ^
+  "$out.Close();" ^
+  "Write-Host ('合并完成，共 {0} 个分块 -> {1}' -f $idx,$outFile)"
 endlocal
-goto :eof
-
-
-
-:: ==============================
-:: 子程序：补零函数 (%%i → 001)
-:: ==============================
-:pad_num
-setlocal EnableDelayedExpansion
-set "n=%~1"
-set "w=%~2"
-set "s=0000000000%n%"
-set "s=!s:~-%w%!"
-endlocal & set "%~3=%s%"
 goto :eof

@@ -1,15 +1,16 @@
-@echo off
+@echo on
 setlocal EnableDelayedExpansion
 
 echo ==========================
 echo File Split / Merge Tool (高速版)
 echo 拖放文件即可分割或合并
+echo 工作路径里不能有空格!!!  工作路径里不能有空格!!!  工作路径里不能有空格!!!
 echo ==========================
 echo.
 
 :: ================= 用户设置 =================
-set "CHUNK_MB=10"        :: 每块大小（单位MB）
-set "PART_PAD=3"         :: 分块编号位数（如 3 表示 part001）
+set "CHUNK_MB=100"        :: 每块大小（单位MB）
+set "PART_PAD=3"          :: 分块编号位数（如 3 表示 part001）
 :: =============================================
 
 if "%~1"=="" (
@@ -72,7 +73,7 @@ powershell -NoProfile -Command ^
   "$outDir=[IO.Path]::GetDirectoryName($path);" ^
   "$chunk=[long]%CHUNK_SIZE%;" ^
   "$buf=New-Object byte[] $chunk;" ^
-  "$idx=0;" ^
+  "$idx=1;" ^
   "$pad=%PART_PAD%;" ^
   "$fs=[IO.File]::OpenRead($path);" ^
   "$total=[math]::Ceiling($fs.Length / $chunk);" ^
@@ -82,11 +83,11 @@ powershell -NoProfile -Command ^
   "  $out=[IO.File]::Open($part,[IO.FileMode]::Create,[IO.FileAccess]::Write);" ^
   "  $out.Write($buf,0,$read);" ^
   "  $out.Close();" ^
-  "  Write-Host ('正在写入分块 {0}/{1} -> {2}' -f ($idx+1),$total,$part);" ^
+  "  Write-Host ('正在写入分块 {0}/{1} -> {2}' -f $idx,$total,$part);" ^
   "  $idx++" ^
   "}" ^
   "$fs.Close();" ^
-  "Write-Host ('完成，共生成 {0} 个分块。' -f $idx)"
+  "Write-Host ('完成，共生成 {0} 个分块。' -f ($idx-1))"
 
 echo 分割完成。
 endlocal
@@ -100,27 +101,28 @@ goto :eof
 setlocal EnableDelayedExpansion
 set "FIRST=%~1"
 set "DIR=%~dp1"
-set "BASENAME=%~n1"
+set "BASENAME=%~nx1"
 
-:: 去掉 .part### 后缀
-for /f "tokens=1 delims=." %%a in ("%BASENAME%") do set "OUTNAME=%%a"
+:: 去掉 .part### 后缀，保留扩展名
+for /f "delims=" %%a in ("%BASENAME%") do set "OUTNAME=%%~na"
 set "OUTFILE=%DIR%%OUTNAME%"
+
 echo.
 echo 合并目标: %OUTFILE%
 echo.
 
 set "LIST="
-set /a count=0
+set /a count=1
 
 :: 枚举所有分块文件，按名称顺序
 for %%f in ("%DIR%%OUTNAME%.part*") do (
-    set /a count+=1
     if defined LIST (
         set "LIST=!LIST!+%%f"
     ) else (
         set "LIST=%%f"
     )
     echo 正在准备合并第 !count! 块: %%f
+    set /a count+=1
 )
 
 if not defined LIST (
@@ -129,22 +131,14 @@ if not defined LIST (
     goto :eof
 )
 
+:: 修正总数（减去最后一次多加的 1）
+set /a total=count-1
+
 echo.
-echo 正在合并中，共 %count% 个分块...
+echo 正在合并中，共 %total% 个分块...
+echo !LIST!
 copy /b !LIST! "%OUTFILE%" >nul
 echo 合并完成: "%OUTFILE%"
 endlocal
 goto :eof
 
-
-:: ==============================
-:: 子程序：补零函数 (%%i → 001)
-:: ==============================
-:pad_num
-setlocal EnableDelayedExpansion
-set "n=%~1"
-set "w=%~2"
-set "s=0000000000%n%"
-set "s=!s:~-%w%!"
-endlocal & set "%~3=%s%"
-goto :eof
