@@ -42,13 +42,25 @@ for %%F in (%*) do (
 
     if /i "!ext!"==".b64" (
         echo 解码中: %%F
-        set /a jobCount+=1
-        start "decodeJob%%~nF" /min cmd /c "certutil -f -decode "%%~fF" "%%~dpnF" >NUL 2>&1  && echo 解码完成: %%~dpnF"
-        if !jobCount! geq %maxThreads% (
-            :: echo WaitJobs1被调用1
-            call :WaitJobs1
-            set jobCount=0
-        )
+                
+        :: 清理作业文件夹
+        if exist ".jobs" rd /s /q ".jobs"
+        mkdir ".jobs"
+        
+        :: ================= 初始化文件队列 =================
+          set fileIndex=0
+          for %%F in (%*) do (
+                 if /I "%%~xF"==".b64" (
+                                set /a fileIndex+=1
+                                       set "file[!fileIndex!]=%%~fF"
+                 )
+          )
+          set totalFiles=%fileIndex%
+          set currentIndex=1
+          
+          :: 开始解码
+          call :decodeLoop
+        
     ) else (        
         echo 编码中: "%%~dpnF"
         
@@ -89,22 +101,7 @@ for %%F in (%*) do (
     )
 )
 
-:: 统计和计算循环耗时
-:: for /f %%T in ('powershell -NoProfile -Command "[int64](Get-Date).ToUniversalTime().Ticks/10000"') do set WaitJobs_startTime=%%T
-
-:: ================== 等待所有子进程 ==================
-:: 循环2, 使用现在的双检测
-call :WaitJobs2
-:: 设定等待时间 (单位毫秒)
-set waittime=100
-pathping -p %waittime% -q 1 localhost >nul
-
-:: 循环2, 使用现在的双检测
-call :WaitJobs2
-
-:: 统计和计算循环耗时
-:: powershell -NoProfile -Command "$elapsed=[int64](Get-Date).ToUniversalTime().Ticks/10000 - %WaitJobs_startTime% - %waittime%; Write-Host ('循环和等待共耗时 {0:F3} 秒' -f ($elapsed/1000.0))"
-
+:decodeEND
 
 :: ================== 记录结束时间 毫秒级 ==================
 echo.
@@ -115,50 +112,44 @@ pause
 exit
 
 
-:: 循环1
-:WaitJobs1
-:waitloop1
-for /f %%N in ('tasklist /fi "windowtitle eq decodeJob*" ^| find /c "cmd.exe"') do set running=%%N
-if !running! geq %maxThreads% (
+
+
+
+
+
+
+
+
+:: ================= 并行解码循环 =================
+:decodeLoop
+set active=0
+for %%J in (.jobs\*.tmp) do set /a active+=1
+
+:: 启动新任务直到达到 maxThreads 或没有剩余文件
+:fillSlots
+if !active! GEQ %maxThreads% goto waitNext
+if !currentIndex! GTR %totalFiles% goto waitNext
+
+set "fullpath=!file[%currentIndex%]!"
+set "filename=!fullpath:.b64=!"
+set "jobfile=.jobs\!currentIndex!.tmp"
+type nul > "!jobfile!"
+
+echo 解码中: !fullpath!
+start "" /min cmd /c "certutil -f -decode "!fullpath!" "!filename!" >NUL 2>&1 && del ""!jobfile!"" && echo 解码完成: !fullpath!" && set /a active+=1 && set /a currentIndex+=1
+
+
+
+goto fillSlots
+
+:waitNext
+:: 等待任意子任务完成
+if !active! GTR 0 (
     pathping -p 100 -q 1 localhost >nul
-    goto waitloop1
+    echo 检测子任务
+    goto decodeLoop
 )
-echo.
-echo ----- ----- ----- 循环 1 执行完成记录 ----- ----- -----
-echo.
-exit /b
 
-:: 循环2
-:WaitJobs2
-set noJobs=0
-:waitloop2
-set running=0
-for /f "skip=3 tokens=1" %%P in ('tasklist /fi "windowtitle eq decodeJob*"') do (
-    if "%%P"=="cmd.exe" set running=1
-)
-if !running!==1 (
-    set noJobs=0
-    goto waitloop2
-) else (
-    set /a noJobs+=1
-    if !noJobs! lss 2 (
-        goto waitloop2
-    )
-)
-echo.
-echo ----- ----- ----- 循环 2 执行完成记录 ----- ----- -----
-echo.
-exit /b
-
-
-
-
-
-
-:: ...你的任务...
-
-:: 记录结束时间并计算耗时（秒，小数格式）
-
-
-
+echo 所有文件解码完成!
+goto :decodeEND
 
