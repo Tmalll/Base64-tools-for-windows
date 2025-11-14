@@ -1,1 +1,0 @@
-纯powershell版本
