@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-echo ================= 简易说明 =================
+echo ================= 简易说明 ================= 
 echo.
 echo Certutil(解码) + Powershell-5.1(编码)
 echo.
