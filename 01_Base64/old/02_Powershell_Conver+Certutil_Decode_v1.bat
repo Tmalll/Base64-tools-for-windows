@@ -63,5 +63,5 @@ for /f %%T in ('powershell -NoProfile -Command "[int](Get-Date -UFormat %%s)"') 
 set /a elapsed=%endTime%-%startTime%
 echo 所有文件处理完成!
 echo 总耗时: %elapsed% 秒
-timeout /t 5 >nul
+pause
 exit
