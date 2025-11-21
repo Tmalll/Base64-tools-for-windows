@@ -1,4 +1,4 @@
-使用 windows 自带的 Certutil 工具作为 base64 编码解码工具
+使用 windows 自带的 Certutil.exe 工具作为 base64 [ 编码 ] 和 [ 解码 ] 工具
 
 编码限制 小于70MB的文件 
 

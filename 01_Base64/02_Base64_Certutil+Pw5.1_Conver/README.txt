@@ -1,4 +1,4 @@
-## 使用 windows 自带的 Certutil 工具作为 base64 解码工具
+## 使用 windows 自带的 Certutil.exe 工具作为 base64 解码工具
 ## 使用 powershell 5.1(系统自带版) 作为编码工具
 ## 编码限制 (测试最大5G文件编码成功)
 ## 解码限制 小于 2.66GB 的 Base64 文件 ( 也就是编码前小于2GB的二进制文件 )

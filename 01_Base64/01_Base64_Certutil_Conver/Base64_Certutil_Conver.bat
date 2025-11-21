@@ -2,19 +2,19 @@
 setlocal enabledelayedexpansion
 
 echo.
+echo Certutil.exe Conver
 echo.
-echo Certutil Conver
+echo 使用 windows 自带的 Certutil 工具作为 base64 [ 编码 ] 和 [ 解码 ] 工具
 echo.
-echo 编码限制: 小于70MB
-echo 解码限制: 小于 2GB 的二进制文件.
-echo 解码限制: 小于 2.66GB 的 Base64 文件.
+echo 编码限制: 小于70MB 的文件.
 echo.
+echo 解码限制: 小于 2GB 的文件, 或 小于 2.66GB 的 Base64 文件.
 echo.
 
 
 :: 检查是否有拖放文件
 if "%~1"=="" (
-    echo 请把文件拖放到此脚本上
+    echo 请把文件拖放到此脚本上 && echo.
     pause
     exit /b
 )
